@@ -21,7 +21,7 @@ Add this to your Claude Desktop MCP settings (`claude_desktop_config.json`):
   "mcpServers": {
     "excel-finance": {
       "command": "node",
-      "args": ["C:\\Users\\razor\\Desktop\\projects\\excel-mcp\\dist\\index.js"],
+      "args": ["C:\\Users\\USERNAME\\Desktop\\projects\\excel-mcp\\dist\\index.js"],
       "env": {}
     }
   }
