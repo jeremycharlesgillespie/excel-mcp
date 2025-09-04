@@ -1,0 +1,7 @@
+openpyxl
+pandas
+numpy
+numpy-financial
+python-dateutil
+xlsxwriter
+pydantic

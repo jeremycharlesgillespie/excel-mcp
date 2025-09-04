@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(pip install:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(chmod:*)"
+    ],
+    "deny": []
+  }
+}
