@@ -9,7 +9,12 @@
       "Bash(mv:*)",
       "Bash(pip install:*)",
       "WebFetch(domain:docs.anthropic.com)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)"
     ],
     "deny": []
   }

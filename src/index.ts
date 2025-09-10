@@ -12,6 +12,10 @@ import { expenseTools } from "./tools/expense-tools.js";
 import { reportingTools } from "./tools/reporting-tools.js";
 import { cashFlowTools } from "./tools/cash-flow-tools.js";
 import { taxTools } from "./tools/tax-tools.js";
+import { analyticsTools } from "./tools/analytics-tools.js";
+import { chartTools } from "./tools/chart-tools.js";
+import { complianceTools } from "./tools/compliance-tools.js";
+import { propertyTools } from "./tools/property-tools-simple.js";
 
 const server = new Server(
   {
@@ -33,6 +37,10 @@ const allTools = [
   ...reportingTools,
   ...cashFlowTools,
   ...taxTools,
+  ...analyticsTools,
+  ...chartTools,
+  ...complianceTools,
+  ...propertyTools,
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({

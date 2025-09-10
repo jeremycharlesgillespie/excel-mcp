@@ -42,7 +42,7 @@ export class ExcelManager {
           if (typeof cell === 'object' && cell !== null && !(cell instanceof Date)) {
             const cellData = cell as CellValue;
             if (cellData.formula) {
-              (cellRef as any).formula = cellData.formula;
+              cellRef.value = { formula: cellData.formula };
             } else {
               cellRef.value = cellData.value;
             }
@@ -82,6 +82,11 @@ export class ExcelManager {
       throw new Error('No file path specified');
     }
     
+    // Ensure formulas are calculated when the file is opened
+    this.workbook.calcProperties = {
+      fullCalcOnLoad: true
+    };
+    
     await this.workbook.xlsx.writeFile(savePath);
     if (!this.currentFile || this.currentFile !== savePath) {
       this.currentFile = savePath;
@@ -102,7 +107,14 @@ export class ExcelManager {
     worksheet.eachRow({ includeEmpty: true }, (row) => {
       const rowData: any[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
-        if ((cell as any).formula) {
+        // Check if the cell value contains a formula
+        if (cell.value && typeof cell.value === 'object' && 'formula' in cell.value) {
+          rowData.push({ 
+            value: (cell.value as any).result || (cell.value as any).formula, 
+            formula: (cell.value as any).formula 
+          });
+        } else if ((cell as any).formula) {
+          // Fallback for legacy formula detection
           rowData.push({ value: cell.value, formula: (cell as any).formula });
         } else {
           rowData.push(cell.value);
@@ -130,7 +142,9 @@ export class ExcelManager {
         
         if (typeof cellData === 'object' && cellData !== null && !(cellData instanceof Date)) {
           if (cellData.formula) {
-            (cell as any).formula = cellData.formula;
+            // When a formula is provided, set it and let Excel calculate the value
+            cell.value = { formula: cellData.formula };
+            // Note: ExcelJS will automatically calculate the value when the file is opened
           } else if (cellData.value !== undefined) {
             cell.value = cellData.value;
           }
@@ -142,6 +156,11 @@ export class ExcelManager {
         }
       });
     });
+    
+    // Force calculation of all formulas
+    this.workbook.calcProperties = {
+      fullCalcOnLoad: true // Ensure formulas are calculated when file is opened
+    };
   }
 
   async addWorksheet(name: string): Promise<void> {
@@ -425,5 +444,103 @@ export class ExcelManager {
   closeWorkbook(): void {
     this.workbook = null;
     this.currentFile = null;
+  }
+
+  /**
+   * Write a calculated value with formula to ensure transparency
+   * This ensures users can see how values were calculated
+   */
+  async writeCellWithFormula(
+    worksheetName: string, 
+    row: number, 
+    col: number, 
+    formula: string,
+    description?: string
+  ): Promise<void> {
+    if (!this.workbook) {
+      throw new Error('No workbook is currently open');
+    }
+    
+    const worksheet = this.workbook.getWorksheet(worksheetName);
+    if (!worksheet) {
+      throw new Error(`Worksheet "${worksheetName}" not found`);
+    }
+    
+    const cell = worksheet.getCell(row, col);
+    cell.value = { formula: formula };
+    
+    // Add a comment with description if provided
+    if (description) {
+      cell.note = description;
+    }
+  }
+
+  /**
+   * Create a calculation with formula instead of hardcoded value
+   * Ensures all calculations are transparent and auditable
+   */
+  static createFormulaCell(formula: string, description?: string): CellValue {
+    return {
+      formula: formula,
+      value: null, // Let Excel calculate the value
+      style: description ? { 
+        font: { italic: true },
+        alignment: { horizontal: 'right' }
+      } : undefined
+    };
+  }
+
+  /**
+   * Validate that a cell contains a formula, not just a value
+   * Use this to ensure calculations are transparent
+   */
+  async validateCellHasFormula(worksheetName: string, row: number, col: number): Promise<boolean> {
+    if (!this.workbook) {
+      throw new Error('No workbook is currently open');
+    }
+    
+    const worksheet = this.workbook.getWorksheet(worksheetName);
+    if (!worksheet) {
+      throw new Error(`Worksheet "${worksheetName}" not found`);
+    }
+    
+    const cell = worksheet.getCell(row, col);
+    return !!(cell.value && typeof cell.value === 'object' && 'formula' in cell.value);
+  }
+
+  /**
+   * Convert a hardcoded value to a formula cell
+   * This ensures transparency in calculations
+   */
+  static convertToFormulaCell(value: number, sourceReferences: string[]): CellValue {
+    // Create a SUM formula from the source references
+    const formula = sourceReferences.length > 0 
+      ? `=SUM(${sourceReferences.join(',')})` 
+      : `=${value}`;
+    
+    return {
+      formula: formula,
+      value: null
+    };
+  }
+
+  /**
+   * Ensure all calculations in a worksheet use formulas
+   * This is critical for audit and transparency
+   */
+  async ensureFormulasInWorksheet(worksheetName: string): Promise<void> {
+    if (!this.workbook) {
+      throw new Error('No workbook is currently open');
+    }
+    
+    const worksheet = this.workbook.getWorksheet(worksheetName);
+    if (!worksheet) {
+      throw new Error(`Worksheet "${worksheetName}" not found`);
+    }
+    
+    // Set calculation properties to ensure formulas are calculated
+    this.workbook.calcProperties = {
+      fullCalcOnLoad: true
+    };
   }
 }

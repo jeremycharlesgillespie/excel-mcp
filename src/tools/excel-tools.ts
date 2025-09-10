@@ -1049,5 +1049,420 @@ export const excelTools: Tool[] = [
         };
       }
     }
+  },
+
+  {
+    name: "excel_write_calculation",
+    description: "Write a calculation to a cell using a formula (not hardcoded value) for transparency",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worksheetName: { type: "string" },
+        cell: { type: "string", description: "Cell address (e.g., 'A3')" },
+        operation: { 
+          type: "string", 
+          enum: ["sum", "average", "count", "min", "max", "product", "subtract", "divide", "multiply", "custom"],
+          description: "Type of calculation to perform"
+        },
+        references: {
+          type: "array",
+          items: { type: "string" },
+          description: "Cell references or ranges to include in calculation (e.g., ['A1', 'A2'] or ['A1:A10'])"
+        },
+        customFormula: {
+          type: "string",
+          description: "Custom formula if operation is 'custom' (e.g., '=A1*B1+C1')"
+        },
+        description: {
+          type: "string",
+          description: "Optional description of what this calculation represents"
+        }
+      },
+      required: ["worksheetName", "cell", "operation"]
+    },
+    handler: async (args: any): Promise<ToolResult> => {
+      try {
+        let formula: string;
+        
+        // Build the formula based on the operation
+        if (args.operation === 'custom' && args.customFormula) {
+          formula = args.customFormula.startsWith('=') ? args.customFormula : `=${args.customFormula}`;
+        } else if (args.references && args.references.length > 0) {
+          const refs = args.references.join(',');
+          
+          switch (args.operation) {
+            case 'sum':
+              formula = `=SUM(${refs})`;
+              break;
+            case 'average':
+              formula = `=AVERAGE(${refs})`;
+              break;
+            case 'count':
+              formula = `=COUNT(${refs})`;
+              break;
+            case 'min':
+              formula = `=MIN(${refs})`;
+              break;
+            case 'max':
+              formula = `=MAX(${refs})`;
+              break;
+            case 'product':
+              formula = `=PRODUCT(${refs})`;
+              break;
+            case 'subtract':
+              if (args.references.length === 2) {
+                formula = `=${args.references[0]}-${args.references[1]}`;
+              } else {
+                throw new Error('Subtract operation requires exactly 2 references');
+              }
+              break;
+            case 'divide':
+              if (args.references.length === 2) {
+                formula = `=${args.references[0]}/${args.references[1]}`;
+              } else {
+                throw new Error('Divide operation requires exactly 2 references');
+              }
+              break;
+            case 'multiply':
+              if (args.references.length === 2) {
+                formula = `=${args.references[0]}*${args.references[1]}`;
+              } else if (args.references.length > 2) {
+                formula = `=PRODUCT(${refs})`;
+              } else {
+                throw new Error('Multiply operation requires at least 2 references');
+              }
+              break;
+            default:
+              throw new Error(`Unknown operation: ${args.operation}`);
+          }
+        } else {
+          throw new Error('References are required for non-custom operations');
+        }
+        
+        // Parse cell address
+        const match = args.cell.match(/^([A-Z]+)(\d+)$/);
+        if (!match) {
+          throw new Error(`Invalid cell address: ${args.cell}`);
+        }
+        
+        const col = match[1].charCodeAt(0) - 64;
+        const row = parseInt(match[2]);
+        
+        // Write the formula to the cell
+        await excelManager.writeCellWithFormula(
+          args.worksheetName,
+          row,
+          col,
+          formula,
+          args.description
+        );
+        
+        return {
+          success: true,
+          message: `Added formula ${formula} to cell ${args.cell}`,
+          data: {
+            cell: args.cell,
+            formula: formula,
+            description: args.description
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  },
+
+  {
+    name: "excel_validate_formulas",
+    description: "Validate that cells contain formulas instead of hardcoded values",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worksheetName: { type: "string" },
+        cells: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of cell addresses to validate (e.g., ['A3', 'B5', 'C10'])"
+        }
+      },
+      required: ["worksheetName", "cells"]
+    },
+    handler: async (args: any): Promise<ToolResult> => {
+      try {
+        const results: { [key: string]: boolean } = {};
+        const missingFormulas: string[] = [];
+        
+        for (const cellAddr of args.cells) {
+          const match = cellAddr.match(/^([A-Z]+)(\d+)$/);
+          if (!match) {
+            throw new Error(`Invalid cell address: ${cellAddr}`);
+          }
+          
+          const col = match[1].charCodeAt(0) - 64;
+          const row = parseInt(match[2]);
+          
+          const hasFormula = await excelManager.validateCellHasFormula(args.worksheetName, row, col);
+          results[cellAddr] = hasFormula;
+          
+          if (!hasFormula) {
+            missingFormulas.push(cellAddr);
+          }
+        }
+        
+        return {
+          success: true,
+          message: missingFormulas.length > 0 
+            ? `Warning: ${missingFormulas.length} cells are missing formulas: ${missingFormulas.join(', ')}`
+            : 'All cells contain formulas',
+          data: {
+            results,
+            missingFormulas
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  },
+
+  {
+    name: "excel_ensure_formula_calculation",
+    description: "Ensure all formulas in a worksheet will be calculated when the file is opened",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worksheetName: { type: "string" }
+      },
+      required: ["worksheetName"]
+    },
+    handler: async (args: any): Promise<ToolResult> => {
+      try {
+        await excelManager.ensureFormulasInWorksheet(args.worksheetName);
+        
+        return {
+          success: true,
+          message: `Configured ${args.worksheetName} to calculate all formulas automatically`
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  },
+
+  {
+    name: "excel_audit_calculations",
+    description: "Audit a worksheet to find cells that should contain formulas but have hardcoded values",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worksheetName: { type: "string" },
+        suspiciousPatterns: {
+          type: "array",
+          items: { type: "string" },
+          default: ["SUM", "AVERAGE", "TOTAL", "SUBTOTAL", "TAX", "DISCOUNT", "PERCENT", "%"],
+          description: "Text patterns that suggest a cell should contain a calculation"
+        },
+        checkNumericCells: {
+          type: "boolean",
+          default: true,
+          description: "Check all numeric cells for potential formulas"
+        }
+      },
+      required: ["worksheetName"]
+    },
+    handler: async (args: any): Promise<ToolResult> => {
+      try {
+        const data = await excelManager.readWorksheet(args.worksheetName);
+        const suspiciousPatterns = args.suspiciousPatterns || ["SUM", "AVERAGE", "TOTAL", "SUBTOTAL", "TAX", "DISCOUNT", "PERCENT", "%"];
+        const issues: any[] = [];
+        
+        data.forEach((row, rowIndex) => {
+          row.forEach((cell, colIndex) => {
+            const cellAddress = String.fromCharCode(65 + colIndex) + (rowIndex + 1);
+            
+            // Check if it's a numeric value without a formula
+            if (typeof cell === 'number' && cell !== 0) {
+              // Check if this appears to be in a calculation context
+              const nearbyText = [];
+              
+              // Check cells around this one for suspicious text
+              for (let r = Math.max(0, rowIndex - 1); r <= Math.min(data.length - 1, rowIndex + 1); r++) {
+                for (let c = Math.max(0, colIndex - 2); c <= Math.min(row.length - 1, colIndex + 2); c++) {
+                  if (r !== rowIndex || c !== colIndex) {
+                    const nearbyCell = data[r] && data[r][c];
+                    if (typeof nearbyCell === 'string') {
+                      nearbyText.push(nearbyCell.toUpperCase());
+                    }
+                  }
+                }
+              }
+              
+              // Check if nearby text suggests this should be a formula
+              const contextText = nearbyText.join(' ');
+              const shouldHaveFormula = suspiciousPatterns.some((pattern: string) => 
+                contextText.includes(pattern.toUpperCase())
+              );
+              
+              if (shouldHaveFormula) {
+                issues.push({
+                  cell: cellAddress,
+                  value: cell,
+                  issue: 'Numeric value in calculation context - should likely be a formula',
+                  context: nearbyText.filter(text => text.length > 0).slice(0, 3),
+                  severity: 'WARNING'
+                });
+              }
+            }
+            
+            // Check for cells with formula objects that have suspicious calculated values
+            if (typeof cell === 'object' && cell !== null && !cell.formula && typeof cell.value === 'number') {
+              issues.push({
+                cell: cellAddress,
+                value: cell.value,
+                issue: 'Cell object with numeric value but no formula - likely hardcoded calculation',
+                severity: 'ERROR'
+              });
+            }
+          });
+        });
+        
+        // Count cells with formulas vs without
+        let totalCells = 0;
+        let formulaCells = 0;
+        let numericCells = 0;
+        
+        data.forEach(row => {
+          row.forEach(cell => {
+            if (cell !== null && cell !== undefined && cell !== '') {
+              totalCells++;
+              if (typeof cell === 'object' && cell.formula) {
+                formulaCells++;
+              } else if (typeof cell === 'number') {
+                numericCells++;
+              }
+            }
+          });
+        });
+        
+        return {
+          success: true,
+          message: issues.length > 0 
+            ? `Found ${issues.length} potential formula issues in ${args.worksheetName}`
+            : `No formula issues found in ${args.worksheetName}`,
+          data: {
+            issues,
+            summary: {
+              totalCells,
+              formulaCells,
+              numericCells,
+              formulaPercentage: totalCells > 0 ? Math.round((formulaCells / totalCells) * 100) : 0
+            },
+            recommendations: issues.length > 0 ? [
+              'Review flagged cells to determine if they should contain formulas',
+              'Use excel_write_calculation to replace hardcoded values with formulas',
+              'Ensure all calculated values show their derivation transparently'
+            ] : [
+              'Worksheet appears to follow formula best practices',
+              'All calculations are transparent and auditable'
+            ]
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  },
+
+  {
+    name: "excel_enforce_formula_rule",
+    description: "Enforce the rule that ALL calculated values must use formulas - never hardcoded results",
+    inputSchema: {
+      type: "object",
+      properties: {
+        worksheetName: { type: "string" },
+        autoFix: {
+          type: "boolean",
+          default: false,
+          description: "Attempt to automatically convert simple calculations to formulas"
+        }
+      },
+      required: ["worksheetName"]
+    },
+    handler: async (args: any): Promise<ToolResult> => {
+      try {
+        // Run comprehensive audit
+        const data = await excelManager.readWorksheet(args.worksheetName);
+        const violations: any[] = [];
+        
+        data.forEach((row, rowIndex) => {
+          row.forEach((cell, colIndex) => {
+            const cellAddress = String.fromCharCode(65 + colIndex) + (rowIndex + 1);
+            
+            // Flag any numeric values that might be calculations
+            if (typeof cell === 'number' && cell > 0) {
+              // Check if this could be a calculated result
+              const isPotentialCalculation = 
+                cell % 1 === 0 && cell > 10 || // Round numbers over 10
+                cell.toString().includes('.') && cell > 1; // Decimal values over 1
+                
+              if (isPotentialCalculation) {
+                violations.push({
+                  cell: cellAddress,
+                  value: cell,
+                  violation: 'RULE_VIOLATION: Calculated value without formula',
+                  rule: 'All calculated values MUST use Excel formulas for transparency',
+                  action: 'Convert to formula using excel_write_calculation tool'
+                });
+              }
+            }
+          });
+        });
+        
+        return {
+          success: true,
+          message: violations.length > 0 
+            ? `⚠️ RULE VIOLATIONS: Found ${violations.length} cells that violate the formula rule`
+            : `✅ COMPLIANCE: All calculations appear to use formulas`,
+          data: {
+            compliant: violations.length === 0,
+            violations,
+            rule: {
+              title: 'MANDATORY FORMULA RULE',
+              description: 'Every calculated value in Excel must use a formula, never hardcoded results',
+              rationale: 'Ensures transparency, auditability, and professional standards',
+              examples: {
+                wrong: 'Cell contains: 42 (hardcoded result)',
+                right: 'Cell contains: =SUM(A1:A5) (shows calculation method)'
+              }
+            },
+            nextSteps: violations.length > 0 ? [
+              'Use excel_write_calculation to fix violations',
+              'Replace hardcoded values with appropriate formulas',
+              'Re-run this tool to verify compliance'
+            ] : [
+              'Worksheet is fully compliant with formula rule',
+              'All calculations are transparent and professional'
+            ]
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
   }
 ];
